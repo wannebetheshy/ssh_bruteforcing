@@ -21,7 +21,8 @@ async def ssh_connect(HOST, PORT, username, password, FLAG):
         print("**** Attempting to connect - Rate limiting on server ****")
         await ssh_connect(HOST, PORT, username, password, FLAG)
     except ConnectionResetError:
-        sys.exit('Server\'s reset connection! Try to change delay! ----')
+        print('**** Attempting to connect = Server\'s reset connection ****')
+        await ssh_connect(HOST, PORT, username, password, FLAG)
             
 
 # This function gets a valid IP address from the user.  =============================
